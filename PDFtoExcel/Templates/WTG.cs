@@ -1,237 +1,22 @@
-﻿using GroupDocs.Parser;
-using GroupDocs.Parser.Data;
-using GroupDocs.Parser.Options;
-using GroupDocs.Parser.Templates;
-using GroupDocs.Viewer;
-using GroupDocs.Viewer.Options;
-using GroupDocs.Viewer.Results;
-using iTextSharp.text.pdf.codec;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.Extensions.Logging;
+﻿using BitMiracle.Docotic.Pdf;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using iTextSharp.text.pdf.parser;
-using static System.Net.Mime.MediaTypeNames;
-using BitMiracle.Docotic.Pdf;
-using System.Collections;
-using System.Data;
-using ExcelLibrary.SpreadSheet;
-using ExcelLibrary;
-using Org.BouncyCastle.Utilities.IO.Pem;
-using System.Runtime.ConstrainedExecution;
-using Microsoft.AspNetCore.Razor.Language.Extensions;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Http;
-using SkiaSharp;
-using Microsoft.Extensions.Hosting;
-using PDFtoExcel.Templates;
 
-namespace PDFtoExcel.Pages
+namespace PDFtoExcel.Templates
 {
-    public class IndexModel : PageModel
+    public class WTG
     {
-        private readonly ILogger<IndexModel> _logger;
-        List<Dictionary<string, string>> ListOfColumns = new List<Dictionary<string, string>>();
-        Dictionary<string, List<string>> DictionaryOfColumns = new Dictionary<string, List<string>>();
-		private Microsoft.AspNetCore.Hosting.IHostingEnvironment _environment;
-
-		public IndexModel(ILogger<IndexModel> logger, Microsoft.AspNetCore.Hosting.IHostingEnvironment environment)
+        Dictionary<string, List<string>> _dictionaryOfColumns = new Dictionary<string, List<string>>();
+        List<Dictionary<string, string>> _listOfColumns = new List<Dictionary<string, string>>();
+        public WTG(Dictionary<string, List<string>> DictionaryOfColumns, List<Dictionary<string, string>> ListOfColumns)
         {
-            _logger = logger;
-			_environment = environment;
-		}
-		[BindProperty]
-		public IFormFile Upload { get; set; }
-		public async Task<ActionResult> OnPostAsync()
-		{
-            var template = Request.Form["Template"][0];
-            int indexPage = Convert.ToInt32(Request.Form["IndexPage"][0]);
-
-			if (!String.IsNullOrEmpty(template)) { 
-			    var file = System.IO.Path.Combine(_environment.ContentRootPath, "wwwroot/files", Upload.FileName);
-			    using (var fileStream = new FileStream(file, FileMode.Create))
-			    {
-				    await Upload.CopyToAsync(fileStream); // Saves the PDF in the server for processing
-			    }
-
-                // create the workbook and worksheet
-                Workbook workbook = new Workbook();
-                Worksheet worksheet = new Worksheet("Results"); 
-
-                using (var pdf = new PdfDocument(file))
-                {
-                    // loop through the file and process them
-                    for (int i = indexPage-1; i < pdf.PageCount; i++)
-                    {
-                        bool isFirstPage = false;
-                        if (i == indexPage - 1)
-                            isFirstPage = true;
-						DictionaryOfColumns = new Dictionary<string, List<string>>();
-                        ListOfColumns = new List<Dictionary<string, string>>();
-                        if (template == "wtg")
-                            ExtractWTGPDF(pdf.Pages[i]);
-                        if (template == "oxy")
-							ExtractOXYPDF(pdf.Pages[i]);
-						worksheet = WriteToWorksheet(worksheet, i, Upload.FileName, isFirstPage);
-                    }
-
-                }
-
-                workbook.Worksheets.Add(worksheet);
-                workbook.Save(System.IO.Path.Combine(_environment.ContentRootPath, "wwwroot/files", "result.xls")); // save the processed file
-
-			    var stream = System.IO.File.OpenRead(System.IO.Path.Combine(_environment.ContentRootPath, "wwwroot/files", "result.xls")); // convert the file into a stream so the user can download it
-			    return new FileStreamResult(stream, "application/octet-stream") { FileDownloadName = "parsed_"+ Upload.FileName +".xls"};
-			}
-			return new RedirectResult("Index");
-		}
-
-		public void OnGet()
-        {
-            
+            _dictionaryOfColumns = DictionaryOfColumns;
+            _listOfColumns = ListOfColumns;
         }
 
-        private void ExtractWTGPDF(PdfPage pdf)
-        {
-
-            WTG wtgTemplate = new WTG(DictionaryOfColumns, ListOfColumns);
-            if (!IsFixedRecovery(pdf, new PdfRectangle(240, 15, 350, 15))) // Checks the head for the phrase "FIXED RECOVERY"
-                wtgTemplate.RunTemplate1(pdf); // Non-Fixed Recovery Template
-            else
-                wtgTemplate.RunTemplate2(pdf); // Fixed Recovery Template
-
-            ListOfColumns = wtgTemplate.ListOfColumns;
-
-
-
-        }
-		private void ExtractOXYPDF(PdfPage pdf)
-		{
-
-			OXY oxyTemplate = new OXY(DictionaryOfColumns, ListOfColumns);
-            oxyTemplate.RunTemplate1(pdf);
-
-			ListOfColumns = oxyTemplate.ListOfColumns;
-
-
-
-		}
-		private bool IsFixedRecovery(PdfPage pdf, PdfRectangle rectangle)
-        {
-            var options = new PdfTextExtractionOptions
-            {
-                Rectangle = rectangle,
-                WithFormatting = false
-            };
-            string areaText = pdf.GetText(options);
-            return areaText.Contains("FIXED RECOVERY");
-        }
-
-        private Worksheet WriteToWorksheet(Worksheet worksheet, int page, string name, bool isFirstPage)
-        {
-            var result = ListOfColumns.SelectMany(dict => dict)
-                         .ToDictionary(pair => pair.Key, pair => pair.Value); // process the dictionary so we can put it into a table
-            DataSet ds = new DataSet();
-            DataTable dt2 = new DataTable();
-            dt2.Columns.Add("Filename", typeof(string));
-            dt2.Columns.Add("Page", typeof(string));
-            dt2.Columns.Add("Key", typeof(string));
-            dt2.Columns.Add("Val", typeof(string));
-            bool firstRow = true;
-            foreach (var item in result)
-            {
-                DataRow dr = dt2.NewRow();
-                dr["Filename"] = "";
-                dr["Page"] = "";
-                if (firstRow)
-                {
-                    dr["Filename"] = name;
-                    dr["Page"] = page;
-                    firstRow = false;
-                }
-                dr["Key"] = item.Key;
-                dr["Val"] = item.Value;
-                dt2.Rows.Add(dr);
-            }
-            ds.Tables.Add(dt2);
-            if (isFirstPage) // special logic for 1st non-cover page
-            {
-                foreach (DataTable dt in ds.Tables)
-                {
-                    for (int i = 0; i < dt.Columns.Count; i++)
-                    {
-                        // Add column header
-                        worksheet.Cells[0, i] = new Cell(dt.Columns[i].ColumnName);
-
-                        // Populate row data
-                        for (int j = 0; j < dt.Rows.Count; j++)
-                            worksheet.Cells[j + 1, i] = new Cell(dt.Rows[j][i]);
-                    }
-                }
-            }
-            else
-            {
-                foreach (DataTable dt in ds.Tables)
-                {
-                    int maxrows = worksheet.Cells.Rows.Count;
-                    for (int i = 0; i < dt.Columns.Count; i++)
-                    {
-                        // Add column header
-                        worksheet.Cells[maxrows + 1, i] = new Cell(dt.Columns[i].ColumnName);
-
-                        // Populate row data
-                        for (int j = 0; j < dt.Rows.Count; j++)
-                            worksheet.Cells[maxrows + j + 2, i] = new Cell(dt.Rows[j][i]);
-                    }
-                }
-            }
-
-            return worksheet;
-        }
-
-        // unused for now, used to write directly into the system
-        private void WriteToCSV()
-        {
-            var result = ListOfColumns.SelectMany(dict => dict)
-                         .ToDictionary(pair => pair.Key, pair => pair.Value);
-            DataSet ds = new DataSet();
-            DataTable dt2 = new DataTable();
-            dt2.Columns.Add("Key", typeof(string));
-            dt2.Columns.Add("Val", typeof(string));
-
-            foreach (var item in result)
-            {
-                DataRow dr = dt2.NewRow();
-                dr["Key"] = item.Key;
-                dr["Val"] = item.Value;
-                dt2.Rows.Add(dr);
-            }
-            ds.Tables.Add(dt2);
-            Workbook workbook = new Workbook();
-            foreach (DataTable dt in ds.Tables)
-            {
-                Worksheet worksheet = new Worksheet("test");
-                for (int i = 0; i < dt.Columns.Count; i++)
-                {
-                    // Add column header
-                    worksheet.Cells[0, i] = new Cell(dt.Columns[i].ColumnName);
-
-                    // Populate row data
-                    for (int j = 0; j < dt.Rows.Count; j++)
-                        worksheet.Cells[j + 1, i] = new Cell(dt.Rows[j][i]);
-                }
-                workbook.Worksheets.Add(worksheet);
-            }
-            workbook.Save(@"d:\test.xls");
-        }
-
-        // grabs the dynamic column values
+        public List<Dictionary<string, string>> ListOfColumns { get { return _listOfColumns; } }
         private void ReadFromPDF1(PdfPage pdf, PdfRectangle rectangle, string columnName)
         {
             var options = new PdfTextExtractionOptions
@@ -240,7 +25,7 @@ namespace PDFtoExcel.Pages
                 WithFormatting = false
             };
             string areaText = pdf.GetText(options);
-            DictionaryOfColumns.Add(columnName, areaText.Split("\r\n").ToList());
+            _dictionaryOfColumns.Add(columnName, areaText.Split("\r\n").ToList());
 
         }
 
@@ -255,7 +40,8 @@ namespace PDFtoExcel.Pages
             string[] splitText = null;
             if (!withFormatting)
                 areaText = areaText.Replace("\r\n", " "); // replaces the newline into space so we can use it as a delimiter
-            if (withFormatting && isNumberOnly) { // special logic to force the parser to go left-to-right instead of top-to-bottom in processing parsed data
+            if (withFormatting && isNumberOnly)
+            { // special logic to force the parser to go left-to-right instead of top-to-bottom in processing parsed data
                 areaText = areaText.Trim();
                 Regex regex = new Regex("[ ]{2,}", RegexOptions.None);
                 areaText = areaText.Replace("\r\n", " ");
@@ -347,9 +133,9 @@ namespace PDFtoExcel.Pages
         /*
          Grabs dynamic and sets static columns so we can fill them with the parsed data later on
          */
-        private void InitializeListOfColumns()
+        private void Initialize_listOfColumns()
         {
-            ListOfColumns = new List<Dictionary<string, string>>();
+            _listOfColumns = new List<Dictionary<string, string>>();
             Dictionary<string, string> tableValues = new Dictionary<string, string>();
             tableValues.Add("Lease & Contract Information Facility Name", "");
             tableValues.Add("Lease & Contract Information Production Date", "");
@@ -361,7 +147,7 @@ namespace PDFtoExcel.Pages
             tableValues.Add("Lease & Contract Information County", "");
             tableValues.Add("Lease & Contract Information Contract Number", "");
             tableValues.Add("Lease & Contract Information Pressure Base", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Settlement Summary Residue Value", "");
@@ -371,10 +157,10 @@ namespace PDFtoExcel.Pages
             tableValues.Add("Settlement Summary Tax", "");
             tableValues.Add("Settlement Summary Tax Reimbursment", "");
             tableValues.Add("Settlement Summary Net Value", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
-            foreach (var val in DictionaryOfColumns["LiquidSettlementLabels"])
+            foreach (var val in _dictionaryOfColumns["LiquidSettlementLabels"])
             {
                 tableValues.Add("LiquidSettlement " + val + " Allocated Gallons", "");
                 tableValues.Add("LiquidSettlement " + val + " Settled MMBTU", "");
@@ -383,17 +169,17 @@ namespace PDFtoExcel.Pages
                 tableValues.Add("LiquidSettlement " + val + " Price", "");
                 tableValues.Add("LiquidSettlement " + val + " Liquid Value", "");
             }
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("LiquidSettlement " + "Total Allocated Gallons", "");
             tableValues.Add("LiquidSettlement " + "Total Settled MMBTU", "");
             tableValues.Add("LiquidSettlement " + "Total Settlement Gallons", "");
             tableValues.Add("LiquidSettlement " + "Total Liquid Value", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
-            foreach (var val in DictionaryOfColumns["WellHeadInformationLabels"])
+            foreach (var val in _dictionaryOfColumns["WellHeadInformationLabels"])
             {
                 if (!String.IsNullOrEmpty(val))
                 {
@@ -415,7 +201,7 @@ namespace PDFtoExcel.Pages
                     }
                 }
             }
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Residue Allocation Net Delivered Mcf", "");
@@ -426,23 +212,23 @@ namespace PDFtoExcel.Pages
             tableValues.Add("Residue Allocation Plant Fuel MBBTU", "");
             tableValues.Add("Residue Allocation Actual Residue Mcf", "");
             tableValues.Add("Residue Allocation Actual Residue MBBTU", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Residue Settlement Contract %", "");
             tableValues.Add("Residue Settlement Settlement Residue", "");
             tableValues.Add("Residue Settlement Price", "");
             tableValues.Add("Residue Settlement Residue Value", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
-            foreach (var val in DictionaryOfColumns["FeesAndAdjustmentsLabels"])
+            foreach (var val in _dictionaryOfColumns["FeesAndAdjustmentsLabels"])
             {
                 tableValues.Add("Fees and Adjustments " + val + " Basis", "");
                 tableValues.Add("Fees and Adjustments " + val + " Rate", "");
                 tableValues.Add("Fees and Adjustments " + val + " Value", "");
             }
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Analysis Nitrogen Mol %", "");
@@ -471,42 +257,42 @@ namespace PDFtoExcel.Pages
             tableValues.Add("Analysis Hexane GPM", "");
             tableValues.Add("Analysis Total Mol %", "");
             tableValues.Add("Analysis Total GPM", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Analysis H2S PPM", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Analysis Specific Gravity", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Plant Contacts Accounting Name", "");
             tableValues.Add("Plant Contacts Accounting Number", "");
             tableValues.Add("Plant Contacts Contracts Name", "");
             tableValues.Add("Plant Contacts Contracts Number", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Operator Nm", "");
             tableValues.Add("Operator ID", "");
             tableValues.Add("Ctr Pty Nm", "");
             tableValues.Add("Ctr Pty ID", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Comments", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
         }
 
         /*
          Grabs dynamic and sets static columns so we can fill them with the parsed data later on
          */
-        private void InitializeListOfColumns2()
+        private void Initialize_listOfColumns2()
         {
-            ListOfColumns = new List<Dictionary<string, string>>();
+            _listOfColumns = new List<Dictionary<string, string>>();
             Dictionary<string, string> tableValues = new Dictionary<string, string>();
             tableValues.Add("Lease & Contract Information Facility Name", "");
             tableValues.Add("Lease & Contract Information Production Date", "");
@@ -518,7 +304,7 @@ namespace PDFtoExcel.Pages
             tableValues.Add("Lease & Contract Information County", "");
             tableValues.Add("Lease & Contract Information Contract Number", "");
             tableValues.Add("Lease & Contract Information Pressure Base", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Settlement Summary Residue Value", "");
@@ -529,10 +315,10 @@ namespace PDFtoExcel.Pages
             tableValues.Add("Settlement Summary Tax", "");
             tableValues.Add("Settlement Summary Tax Reimbursment", "");
             tableValues.Add("Settlement Summary Net Value", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
-            foreach (var val in DictionaryOfColumns["LiquidSettlementLabels"])
+            foreach (var val in _dictionaryOfColumns["LiquidSettlementLabels"])
             {
                 tableValues.Add("LiquidSettlement " + val + " Plant Recovery %", "");
                 tableValues.Add("LiquidSettlement " + val + " GPM", "");
@@ -543,7 +329,7 @@ namespace PDFtoExcel.Pages
                 tableValues.Add("LiquidSettlement " + val + " Price", "");
                 tableValues.Add("LiquidSettlement " + val + " Liquid Value", "");
             }
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("LiquidSettlement " + "Total GPM", "");
@@ -551,7 +337,7 @@ namespace PDFtoExcel.Pages
             tableValues.Add("LiquidSettlement " + "Total Shrink", "");
             tableValues.Add("LiquidSettlement " + "Total Settlement Gallons", "");
             tableValues.Add("LiquidSettlement " + "Total Liquid Value", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Wellhead Information Wellhead: Mcf", "");
@@ -570,7 +356,7 @@ namespace PDFtoExcel.Pages
             tableValues.Add("Wellhead Information Net Delivered: Mcf", "");
             tableValues.Add("Wellhead Information Net Delivered: MMBTU", "");
             tableValues.Add("Wellhead Information Wellhead Btu Factor: MMBTU", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Residue Allocation Net Delivered Mcf", "");
@@ -581,24 +367,24 @@ namespace PDFtoExcel.Pages
             tableValues.Add("Residue Allocation Shrink MBBTU", "");
             tableValues.Add("Residue Allocation Plant Fuel MBBTU", "");
             tableValues.Add("Residue Allocation Actual Residue MBBTU", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Residue Settlement Contract %", "");
             tableValues.Add("Residue Settlement Settlement Residue", "");
             tableValues.Add("Residue Settlement Price", "");
             tableValues.Add("Residue Settlement Residue Value", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
-            foreach (var val in DictionaryOfColumns["FeesAndAdjustmentsLabels"])
+            foreach (var val in _dictionaryOfColumns["FeesAndAdjustmentsLabels"])
             {
                 tableValues.Add("Fees And Adjustments " + val + " Basis", "");
                 tableValues.Add("Fees And Adjustments " + val + " Rate", "");
                 tableValues.Add("Fees And Adjustments " + val + " Value", "");
             }
-          
-            ListOfColumns.Add(tableValues);
+
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Analysis Nitrogen Mol %", "");
@@ -627,35 +413,35 @@ namespace PDFtoExcel.Pages
             tableValues.Add("Analysis Hexane GPM", "");
             tableValues.Add("Analysis Total Mol %", "");
             tableValues.Add("Analysis Total GPM", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Analysis H2S PPM", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Analysis Specific Gravity", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Plant Contacts Accounting Name", "");
             tableValues.Add("Plant Contacts Accounting Number", "");
             tableValues.Add("Plant Contacts Contracts Name", "");
             tableValues.Add("Plant Contacts Contracts Number", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Operator Nm", "");
             tableValues.Add("Operator ID", "");
             tableValues.Add("Ctr Pty Nm", "");
             tableValues.Add("Ctr Pty ID", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
 
             tableValues = new Dictionary<string, string>();
             tableValues.Add("Comments", "");
-            ListOfColumns.Add(tableValues);
+            _listOfColumns.Add(tableValues);
         }
-        private void RunTemplate1(PdfPage pdf)
+        public void RunTemplate1(PdfPage pdf)
         {
             Dictionary<string, PdfRectangle> tableTemplates = new Dictionary<string, PdfRectangle>();
             tableTemplates.Add("LeaseAndContractInformation", new PdfRectangle(200, 75, 550, 10));
@@ -667,7 +453,7 @@ namespace PDFtoExcel.Pages
             ReadFromPDF1(pdf, tableTemplates["WellHeadInformationLabels"], "WellHeadInformationLabels"); // grabs the dynamic columns
             ReadFromPDF1(pdf, tableTemplates["FeesAndAdjustmentsLabels"], "FeesAndAdjustmentsLabels"); // grabs the dynamic columns
 
-            InitializeListOfColumns();
+            Initialize_listOfColumns();
 
             tableTemplates.Add("LiquidSettlementValues", new PdfRectangle(340, 195, 420, 90));
             tableTemplates.Add("LiquidSettlementTotals", new PdfRectangle(340, 280, 420, 30));
@@ -684,23 +470,23 @@ namespace PDFtoExcel.Pages
 
 
             //process each table and maps them back to the dictionary
-            ListOfColumns[0] = ReadFromPDF(pdf, tableTemplates["LeaseAndContractInformation"], ListOfColumns[0]);
-            ListOfColumns[1] = ReadFromPDF(pdf, tableTemplates["SettlementSummary"], ListOfColumns[1]);
-            ListOfColumns[2] = ReadFromPDF(pdf, tableTemplates["LiquidSettlementValues"], ListOfColumns[2]);
-            ListOfColumns[3] = ReadFromPDF(pdf, tableTemplates["LiquidSettlementTotals"], ListOfColumns[3]);
-            ListOfColumns[4] = ReadFromPDF(pdf, tableTemplates["WellHeadInformationValues"], ListOfColumns[4], false, true);
-            ListOfColumns[5] = ReadFromPDF(pdf, tableTemplates["ResidueAllocationValues"], ListOfColumns[5], false, true);
-            ListOfColumns[6] = ReadFromPDF(pdf, tableTemplates["ResidueSettlementValues"], ListOfColumns[6], false, true);
-            ListOfColumns[7] = ReadFromPDF(pdf, tableTemplates["FeesAndAdjustmentsValues"], ListOfColumns[7], false, true);
-            ListOfColumns[8] = ReadFromPDF(pdf, tableTemplates["AnalysisValues"], ListOfColumns[8], false, true);
-            ListOfColumns[9] = ReadFromPDF(pdf, tableTemplates["AnalysisH2SPPMValues"], ListOfColumns[9], false, true);
-            ListOfColumns[10] = ReadFromPDF(pdf, tableTemplates["AnalysisSpecificGravityValues"], ListOfColumns[10], false, true);
-            ListOfColumns[11] = ReadFromPDF(pdf, tableTemplates["PlantContactsValues"], ListOfColumns[11], true, false, true);
-            ListOfColumns[12] = ReadFromPDF(pdf, tableTemplates["OperatorAndCtrInfoValues"], ListOfColumns[12], true, false, true);
-            ListOfColumns[13] = ReadFromPDF(pdf, tableTemplates["CommentsValues"], ListOfColumns[13]);
+            _listOfColumns[0] = ReadFromPDF(pdf, tableTemplates["LeaseAndContractInformation"], _listOfColumns[0]);
+            _listOfColumns[1] = ReadFromPDF(pdf, tableTemplates["SettlementSummary"], _listOfColumns[1]);
+            _listOfColumns[2] = ReadFromPDF(pdf, tableTemplates["LiquidSettlementValues"], _listOfColumns[2]);
+            _listOfColumns[3] = ReadFromPDF(pdf, tableTemplates["LiquidSettlementTotals"], _listOfColumns[3]);
+            _listOfColumns[4] = ReadFromPDF(pdf, tableTemplates["WellHeadInformationValues"], _listOfColumns[4], false, true);
+            _listOfColumns[5] = ReadFromPDF(pdf, tableTemplates["ResidueAllocationValues"], _listOfColumns[5], false, true);
+            _listOfColumns[6] = ReadFromPDF(pdf, tableTemplates["ResidueSettlementValues"], _listOfColumns[6], false, true);
+            _listOfColumns[7] = ReadFromPDF(pdf, tableTemplates["FeesAndAdjustmentsValues"], _listOfColumns[7], false, true);
+            _listOfColumns[8] = ReadFromPDF(pdf, tableTemplates["AnalysisValues"], _listOfColumns[8], false, true);
+            _listOfColumns[9] = ReadFromPDF(pdf, tableTemplates["AnalysisH2SPPMValues"], _listOfColumns[9], false, true);
+            _listOfColumns[10] = ReadFromPDF(pdf, tableTemplates["AnalysisSpecificGravityValues"], _listOfColumns[10], false, true);
+            _listOfColumns[11] = ReadFromPDF(pdf, tableTemplates["PlantContactsValues"], _listOfColumns[11], true, false, true);
+            _listOfColumns[12] = ReadFromPDF(pdf, tableTemplates["OperatorAndCtrInfoValues"], _listOfColumns[12], true, false, true);
+            _listOfColumns[13] = ReadFromPDF(pdf, tableTemplates["CommentsValues"], _listOfColumns[13]);
         }
 
-        private void RunTemplate2(PdfPage pdf)
+        public void RunTemplate2(PdfPage pdf)
         {
             Dictionary<string, PdfRectangle> tableTemplates = new Dictionary<string, PdfRectangle>();
 
@@ -711,7 +497,7 @@ namespace PDFtoExcel.Pages
             ReadFromPDF1(pdf, tableTemplates["LiquidSettlementLabels"], "LiquidSettlementLabels"); // grabs the dynamic columns
             ReadFromPDF1(pdf, tableTemplates["FeesAndAdjustmentsLabels"], "FeesAndAdjustmentsLabels"); // grabs the dynamic columns
 
-            InitializeListOfColumns2();
+            Initialize_listOfColumns2();
 
             tableTemplates.Add("LiquidSettlementValues", new PdfRectangle(290, 200, 470, 75));
             tableTemplates.Add("LiquidSettlementTotals", new PdfRectangle(340, 280, 420, 30));
@@ -728,20 +514,20 @@ namespace PDFtoExcel.Pages
 
 
             //process each table and maps them back to the dictionary
-            ListOfColumns[0] = ReadFromPDF(pdf, tableTemplates["LeaseAndContractInformation"], ListOfColumns[0]);
-            ListOfColumns[1] = ReadFromPDF(pdf, tableTemplates["SettlementSummary"], ListOfColumns[1]);
-            ListOfColumns[2] = ReadFromPDF(pdf, tableTemplates["LiquidSettlementValues"], ListOfColumns[2], false, true);
-            ListOfColumns[3] = ReadFromPDF(pdf, tableTemplates["LiquidSettlementTotals"], ListOfColumns[3]);
-            ListOfColumns[4] = ReadFromPDF(pdf, tableTemplates["WellHeadInformationValues"], ListOfColumns[4], false, true);
-            ListOfColumns[5] = ReadFromPDF(pdf, tableTemplates["ResidueAllocationValues"], ListOfColumns[5], false, true);
-            ListOfColumns[6] = ReadFromPDF(pdf, tableTemplates["ResidueSettlementValues"], ListOfColumns[6], false, true);
-            ListOfColumns[7] = ReadFromPDF(pdf, tableTemplates["FeesAndAdjustmentsValues"], ListOfColumns[7], true, true);
-            ListOfColumns[8] = ReadFromPDF(pdf, tableTemplates["AnalysisValues"], ListOfColumns[8], false, true);
-            ListOfColumns[9] = ReadFromPDF(pdf, tableTemplates["AnalysisH2SPPMValues"], ListOfColumns[9], false, true);
-            ListOfColumns[10] = ReadFromPDF(pdf, tableTemplates["AnalysisSpecificGravityValues"], ListOfColumns[10], false, true);
-            ListOfColumns[11] = ReadFromPDF(pdf, tableTemplates["PlantContactsValues"], ListOfColumns[11], true, false, true);
-            ListOfColumns[12] = ReadFromPDF(pdf, tableTemplates["OperatorAndCtrInfoValues"], ListOfColumns[12], true, false, true);
-            ListOfColumns[13] = ReadFromPDF(pdf, tableTemplates["CommentsValues"], ListOfColumns[13]);
+            _listOfColumns[0] = ReadFromPDF(pdf, tableTemplates["LeaseAndContractInformation"], _listOfColumns[0]);
+            _listOfColumns[1] = ReadFromPDF(pdf, tableTemplates["SettlementSummary"], _listOfColumns[1]);
+            _listOfColumns[2] = ReadFromPDF(pdf, tableTemplates["LiquidSettlementValues"], _listOfColumns[2], false, true);
+            _listOfColumns[3] = ReadFromPDF(pdf, tableTemplates["LiquidSettlementTotals"], _listOfColumns[3]);
+            _listOfColumns[4] = ReadFromPDF(pdf, tableTemplates["WellHeadInformationValues"], _listOfColumns[4], false, true);
+            _listOfColumns[5] = ReadFromPDF(pdf, tableTemplates["ResidueAllocationValues"], _listOfColumns[5], false, true);
+            _listOfColumns[6] = ReadFromPDF(pdf, tableTemplates["ResidueSettlementValues"], _listOfColumns[6], false, true);
+            _listOfColumns[7] = ReadFromPDF(pdf, tableTemplates["FeesAndAdjustmentsValues"], _listOfColumns[7], true, true);
+            _listOfColumns[8] = ReadFromPDF(pdf, tableTemplates["AnalysisValues"], _listOfColumns[8], false, true);
+            _listOfColumns[9] = ReadFromPDF(pdf, tableTemplates["AnalysisH2SPPMValues"], _listOfColumns[9], false, true);
+            _listOfColumns[10] = ReadFromPDF(pdf, tableTemplates["AnalysisSpecificGravityValues"], _listOfColumns[10], false, true);
+            _listOfColumns[11] = ReadFromPDF(pdf, tableTemplates["PlantContactsValues"], _listOfColumns[11], true, false, true);
+            _listOfColumns[12] = ReadFromPDF(pdf, tableTemplates["OperatorAndCtrInfoValues"], _listOfColumns[12], true, false, true);
+            _listOfColumns[13] = ReadFromPDF(pdf, tableTemplates["CommentsValues"], _listOfColumns[13]);
         }
     }
 }

@@ -11,6 +11,25 @@
 			Please specify a file:<br>
 			<input type="file">
 		</p>
+		<p>
+			@{
+				List<SelectListItem> listItems = new List<SelectListItem>();
+				listItems.Add(new SelectListItem
+				{
+					Text = "WTG",
+					Value = "wtg"
+				});
+				listItems.Add(new SelectListItem
+				{
+					Text = "OXY",
+					Value = "oxy",
+					Selected = true
+				});
+			}
+
+			@Html.DropDownList("Country", listItems, "Choose-Category", new {@class="form-control"})
+
+		</p>
 		<div><input type="submit" value="Send"></div>
 
 	}
